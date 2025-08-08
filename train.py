@@ -8,11 +8,13 @@ from tokenizers.trainers import WordLevelTrainer
 from torch.utils.data import random_split, DataLoader
 
 from dataset import BilingualDataset
+from model import build_transformer
 
 
 def get_all_sentences(ds, lang):
     for item in ds:
-        yield item['translation'][lang]
+        yield item["translation"][lang]
+
 
 def get_or_build_tokenizer(config, ds, lang):
     tokenizer_path = Path(config["tokenizer_file"].format(lang))
@@ -82,3 +84,14 @@ def get_dataset(config):
     val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
 
     return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
+
+
+def get_model(config, vocab_src_len, vocab_tgt_len):
+    model = build_transformer(
+        vocab_src_len,
+        vocab_tgt_len,
+        config["seq_len"],
+        config["seq_len"],
+        dmodel=config["d_model"],
+    )
+    return model
