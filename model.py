@@ -153,3 +153,15 @@ class MultiHeadAttention(nn.Module):
         )
 
         return self.wo(x)
+
+
+class ResidualConnection(nn.Module):
+    def __init__(self, dmodel, dropout: float) -> None:
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.norm = LayerNormalization(
+            dmodel
+        )  ####################################################################################################DIFFERENT
+
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
