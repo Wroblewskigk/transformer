@@ -105,11 +105,11 @@ class MultiHeadAttentionBlock(nn.Module):
         key = self.wk(k)
         value = self.wv(v)
 
-        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(
+        query = query.view(query.shape[0], query.shape[1], self.num_heads, self.dk).transpose(
             1, 2
         )
-        key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).transpose(1, 2)
-        value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(
+        key = key.view(key.shape[0], key.shape[1], self.num_heads, self.dk).transpose(1, 2)
+        value = value.view(value.shape[0], value.shape[1], self.num_heads, self.dk).transpose(
             1, 2
         )
 
@@ -118,9 +118,9 @@ class MultiHeadAttentionBlock(nn.Module):
             query, key, value, mask, self.dropout
         )
 
-        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.h * self.d_k)
+        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.num_heads * self.dk)
 
-        return self.w_o(x)
+        return self.wo(x)
 
 
 class EncoderBlock(nn.Module):
