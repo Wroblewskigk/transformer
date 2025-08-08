@@ -88,11 +88,9 @@ class MultiHeadAttention(nn.Module):
         self.num_heads = (
             num_heads / dmodel
         )  ####################################################################################################DIFFERENT
-
         self.wq = nn.Linear(dmodel, dmodel)
         self.wk = nn.Linear(dmodel, dmodel)
         self.wv = nn.Linear(dmodel, dmodel)
-
         self.wo = nn.Linear(dmodel, dmodel)
         self.dropout = nn.Dropout(dropout)
 
@@ -158,6 +156,7 @@ class MultiHeadAttention(nn.Module):
 class ResidualConnection(nn.Module):
     def __init__(self, dmodel, dropout: float) -> None:
         super().__init__()
+        self.dmodel = dmodel
         self.dropout = nn.Dropout(dropout)
         self.norm = LayerNormalization(
             dmodel
@@ -165,3 +164,29 @@ class ResidualConnection(nn.Module):
 
     def forward(self, x, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
+
+
+class EncoderBlock(nn.Module):
+    def __init__(
+        self,
+        self_attention: MultiHeadAttention,
+        feedforward: FeedForward,
+        dropout: float,
+        dmodel,
+    ) -> None:
+        super().__init__()
+        self.dmodel = dmodel
+        self.self_attention = self_attention
+        self.feedforward = feedforward
+        self.residual_connection = nn.ModuleList(
+            [
+                ResidualConnection(dmodel, dropout) for _ in range(2)
+            ]  ################################################################################################DIFFERENT
+        )
+
+    # noinspection PyShadowingNames
+    def forward(self, x, src_mask):
+        x = self.residual_connection[0](
+            x, lambda x: self.self_attention(x, x, x, src_mask)
+        )
+        x = self.residual_connection[1](x, self.feedforward)
