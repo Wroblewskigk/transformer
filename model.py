@@ -1,197 +1,159 @@
-import math
-
 import torch
 import torch.nn as nn
+import math
 
 
 class InputEmbeddings(nn.Module):
-    def __init__(self, dmodel: int, vocabulary_size: int) -> None:
+
+    def __init__(self, dmodel: int, vocab_size: int) -> None:
         super().__init__()
         self.dmodel = dmodel
-        self.vocabulary_size = vocabulary_size
-        self.embedding = nn.Embedding(vocabulary_size, dmodel)
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, dmodel)
 
     def forward(self, x):
         return self.embedding(x) * math.sqrt(self.dmodel)
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, dmodel: int, sequence_length: int, dropout: float) -> None:
+
+    def __init__(self, dmodel: int, seq_len: int, dropout: float) -> None:
         super().__init__()
         self.dmodel = dmodel
-        self.sequence_length = sequence_length
+        self.seq_len = seq_len
         self.dropout = nn.Dropout(dropout)
-
-        """
-        Usually you would use equations from paper "Attention is all you need", 
-        however they have been optimized lately (or so i've heard)
-        
-        Original positional encoding for even indices (2i).
-        PE(pos, 2i) = sin(pos / (10000**(2i / d_model)))
-        Original positional encoding for odd indices (2i + 1).
-        PE(pos, 2i+1) = cos(pos / (10000**(2i / d_model)))
-        """
-
-        # Matrix of shape (sequence_length, dmodel)
-        positional_encoding = torch.zeros(sequence_length, dmodel)
-        # Matrix of shape (sequence_length, 1)
-        position = torch.arange(0, sequence_length, dtype=torch.float).unsqueeze(1)
+        positional_encoding = torch.zeros(seq_len, dmodel)
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
         denominator = torch.exp(
             torch.arange(0, dmodel, 2).float() * (-math.log(10000.0) / dmodel)
         )
-        # Apply sin and cos to positional encoding
         positional_encoding[:, 0::2] = torch.sin(position * denominator)
         positional_encoding[:, 1::2] = torch.cos(position * denominator)
-
-        # Make positional encoding (1, sequence_length, dmodel)
         positional_encoding = positional_encoding.unsqueeze(0)
-
         self.register_buffer("positional_encoding", positional_encoding)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x):
         x = x + (self.positional_encoding[:, : x.shape[1], :]).requires_grad_(False)
         return self.dropout(x)
 
 
 class LayerNormalization(nn.Module):
-    def __init__(self, dmodel: int, epsilon: float = 1e-6) -> None:
+
+    def __init__(self, features: int, epsilon: float = 1e-6) -> None:
         super().__init__()
-        self.dmodel = dmodel
         self.epsilon = epsilon
-        self.alpha = nn.Parameter(torch.ones(1, dmodel))  # Multiplicative
-        self.bias = nn.Parameter(torch.zeros(1, dmodel))  # Additive
+        self.alpha = nn.Parameter(torch.ones(features))
+        self.bias = nn.Parameter(torch.zeros(features))
 
     def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
+        mean = x.mean(dim=-1, keepdim=True)
+        std = x.std(dim=-1, keepdim=True)
         return self.alpha * (x - mean) / (std + self.epsilon) + self.bias
 
 
-class FeedForward(nn.Module):
+class FeedForwardBlock(nn.Module):
+
     def __init__(self, dmodel: int, dff: int, dropout: float) -> None:
         super().__init__()
-        self.linear1 = nn.Linear(dmodel, dff)  # W1 and b1
+        self.linear_1 = nn.Linear(dmodel, dff)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dff, dmodel)  # W2 and b2
+        self.linear_2 = nn.Linear(dff, dmodel)
 
     def forward(self, x):
-        return self.linear2(self.dropout(torch.relu(self.linear1(x))))
+        return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
 
 
-class MultiHeadAttention(nn.Module):
+class ResidualConnection(nn.Module):
+
+    def __init__(self, features: int, dropout: float) -> None:
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.norm = LayerNormalization(features)
+
+    def forward(self, x, sublayer):
+        return x + self.dropout(sublayer(self.norm(x)))
+
+
+class MultiHeadAttentionBlock(nn.Module):
+
     def __init__(self, dmodel: int, num_heads: int, dropout: float) -> None:
         super().__init__()
-        self.attention_scores = None  #########################################################################DIFFERENT
         self.dmodel = dmodel
         self.num_heads = num_heads
-        assert num_heads % dmodel == 0, "num_heads must be divisible by dmodel"
-        self.num_heads = (
-            num_heads / dmodel
-        )  ####################################################################################################DIFFERENT
-        self.wq = nn.Linear(dmodel, dmodel)
-        self.wk = nn.Linear(dmodel, dmodel)
-        self.wv = nn.Linear(dmodel, dmodel)
-        self.wo = nn.Linear(dmodel, dmodel)
+        assert dmodel % num_heads == 0, "dmodel must be divisible by num_heads"
+
+        self.dk = dmodel // num_heads
+        self.wq = nn.Linear(dmodel, dmodel, bias=False)
+        self.wk = nn.Linear(dmodel, dmodel, bias=False)
+        self.wv = nn.Linear(dmodel, dmodel, bias=False)
+        self.wo = nn.Linear(dmodel, dmodel, bias=False)
         self.dropout = nn.Dropout(dropout)
 
     @staticmethod
     def attention(query, key, value, mask, dropout: nn.Dropout):
         dk = query.shape[-1]
-
         attention_scores = (query @ key.transpose(-2, -1)) / math.sqrt(dk)
         if mask is not None:
             attention_scores.masked_fill_(mask == 0, -math.inf)
         attention_scores = attention_scores.softmax(dim=-1)
         if dropout is not None:
             attention_scores = dropout(attention_scores)
-
         return (attention_scores @ value), attention_scores
 
     def forward(self, q, k, v, mask):
         query = self.wq(q)
         key = self.wk(k)
         value = self.wv(v)
-        """
-        Q, K, V transpose shape goes like this: 
-        
-        [batch, sequence_length, dmodel] -> 
-        [batch, sequence_length, num_heads, dk] -> 
-        [batch, num_heads, dmodel]
-        """
-        query = query.view(
-            query.shape[0],
-            query.shape[1],
-            self.num_heads,
-            self.dk,
-        ).transpose(1, 2)
-        key = key.view(
-            key.shape[0],
-            key.shape[1],
-            self.num_heads,
-            self.dk,
-        ).transpose(1, 2)
-        value = value.view(
-            value.shape[0],
-            value.shape[1],
-            self.num_heads,
-            self.dk,
-        ).transpose(1, 2)
-        x, self.attention_scores = MultiHeadAttention.attention(
+
+        query = query.view(query.shape[0], query.shape[1], self.h, self.d_k).transpose(
+            1, 2
+        )
+        key = key.view(key.shape[0], key.shape[1], self.h, self.d_k).transpose(1, 2)
+        value = value.view(value.shape[0], value.shape[1], self.h, self.d_k).transpose(
+            1, 2
+        )
+
+        # noinspection PyAttributeOutsideInit
+        x, self.attention_scores = MultiHeadAttentionBlock.attention(
             query, key, value, mask, self.dropout
         )
-        x = (
-            x.transpose(1, 2)
-            .contiguous()
-            .view(x.shape[0], -1, self.num_heads * self.dk)
-        )
-        return self.wo(x)
 
+        x = x.transpose(1, 2).contiguous().view(x.shape[0], -1, self.h * self.d_k)
 
-class ResidualConnection(nn.Module):
-    def __init__(self, dmodel, dropout: float) -> None:
-        super().__init__()
-        self.dmodel = dmodel
-        self.dropout = nn.Dropout(dropout)
-        self.norm = LayerNormalization(
-            dmodel
-        )  ####################################################################################################DIFFERENT
-
-    def forward(self, x, sublayer):
-        return x + self.dropout(sublayer(self.norm(x)))
+        return self.w_o(x)
 
 
 class EncoderBlock(nn.Module):
+
     def __init__(
         self,
-        self_attention: MultiHeadAttention,
-        feedforward: FeedForward,
+        features: int,
+        self_attention_block: MultiHeadAttentionBlock,
+        feed_forward_block: FeedForwardBlock,
         dropout: float,
-        dmodel,
     ) -> None:
         super().__init__()
-        self.self_attention = self_attention
-        self.feedforward = feedforward
-        self.residual_connection = nn.ModuleList(
-            [
-                ResidualConnection(dmodel, dropout) for _ in range(2)
-            ]  ################################################################################################DIFFERENT
+        self.self_attention_block = self_attention_block
+        self.feed_forward_block = feed_forward_block
+        self.residual_connections = nn.ModuleList(
+            [ResidualConnection(features, dropout) for _ in range(2)]
         )
 
     # noinspection PyShadowingNames
     def forward(self, x, src_mask):
-        x = self.residual_connection[0](
-            x, lambda x: self.self_attention(x, x, x, src_mask)
+        x = self.residual_connections[0](
+            x, lambda x: self.self_attention_block(x, x, x, src_mask)
         )
-        x = self.residual_connection[1](x, self.feedforward)
+        x = self.residual_connections[1](x, self.feed_forward_block)
         return x
 
 
 class Encoder(nn.Module):
-    def __init__(self, dmodel, layers: nn.ModuleList) -> None:
+
+    def __init__(self, features: int, layers: nn.ModuleList) -> None:
         super().__init__()
-        self.dmodel = dmodel
         self.layers = layers
-        self.norm = LayerNormalization(dmodel)
+        self.norm = LayerNormalization(features)
 
     def forward(self, x, mask):
         for layer in self.layers:
@@ -200,53 +162,97 @@ class Encoder(nn.Module):
 
 
 class DecoderBlock(nn.Module):
+
     def __init__(
         self,
-        self_attention: MultiHeadAttention,
-        cross_attention: MultiHeadAttention,
-        feedforward: FeedForward,
+        features: int,
+        self_attention_block: MultiHeadAttentionBlock,
+        cross_attention_block: MultiHeadAttentionBlock,
+        feed_forward_block: FeedForwardBlock,
         dropout: float,
-        dmodel,
     ) -> None:
         super().__init__()
-        self.self_attention = self_attention
-        self.cross_attention = cross_attention
-        self.feedforward = feedforward
-        self.residual_connection = nn.ModuleList(
-            [ResidualConnection(dmodel, dropout) for _ in range(3)]
+        self.self_attention_block = self_attention_block
+        self.cross_attention_block = cross_attention_block
+        self.feed_forward_block = feed_forward_block
+        self.residual_connections = nn.ModuleList(
+            [ResidualConnection(features, dropout) for _ in range(3)]
         )
 
     # noinspection PyShadowingNames
-    def forward(self, x, encoder_output, src_mask, target_mask):
-        x = self.residual_connection[0](
-            x, lambda x: self.self_attention(x, x, x, target_mask)
+    def forward(self, x, encoder_output, src_mask, tgt_mask):
+        x = self.residual_connections[0](
+            x, lambda x: self.self_attention_block(x, x, x, tgt_mask)
         )
-        x = self.residual_connection[1](
+        x = self.residual_connections[1](
             x,
-            lambda x: self.cross_attention(x, encoder_output, encoder_output, src_mask),
+            lambda x: self.cross_attention_block(
+                x, encoder_output, encoder_output, src_mask
+            ),
         )
-        x = self.residual_connection[2](x, self.feedforward)
+        x = self.residual_connections[2](x, self.feed_forward_block)
         return x
 
 
 class Decoder(nn.Module):
-    def __init__(self, dmodel, layers: nn.ModuleList):
+
+    def __init__(self, features: int, layers: nn.ModuleList) -> None:
         super().__init__()
         self.layers = layers
-        self.norm = LayerNormalization(
-            dmodel
-        )  ####################################################################################################DIFFERENT
+        self.norm = LayerNormalization(features)
 
-    def forward(self, x, encoder_output, src_mask, target_mask):
+    def forward(self, x, encoder_output, src_mask, tgt_mask):
         for layer in self.layers:
-            x = layer(x, encoder_output, src_mask, target_mask)
+            x = layer(x, encoder_output, src_mask, tgt_mask)
         return self.norm(x)
 
 
 class ProjectionLayer(nn.Module):
-    def __init__(self, dmodel: int, vocabulary_size: int) -> None:
-        super().__init__()
-        self.projection = nn.Linear(dmodel, vocabulary_size)
 
-    def forward(self, x):
-        return torch.log_softmax(self.projection(x), dim=-1)
+    def __init__(self, dmodel, vocab_size) -> None:
+        super().__init__()
+        self.proj = nn.Linear(dmodel, vocab_size)
+
+    def forward(self, x) -> None:
+        return self.proj(x)
+
+
+class Transformer(nn.Module):
+
+    def __init__(
+        self,
+        encoder: Encoder,
+        decoder: Decoder,
+        src_embed: InputEmbeddings,
+        tgt_embed: InputEmbeddings,
+        src_pos: PositionalEncoding,
+        tgt_pos: PositionalEncoding,
+        projection_layer: ProjectionLayer,
+    ) -> None:
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.src_embed = src_embed
+        self.tgt_embed = tgt_embed
+        self.src_pos = src_pos
+        self.tgt_pos = tgt_pos
+        self.projection_layer = projection_layer
+
+    def encode(self, src, src_mask):
+        src = self.src_embed(src)
+        src = self.src_pos(src)
+        return self.encoder(src, src_mask)
+
+    def decode(
+        self,
+        encoder_output: torch.Tensor,
+        src_mask: torch.Tensor,
+        tgt: torch.Tensor,
+        tgt_mask: torch.Tensor,
+    ):
+        tgt = self.tgt_embed(tgt)
+        tgt = self.tgt_pos(tgt)
+        return self.decoder(tgt, encoder_output, src_mask, tgt_mask)
+
+    def project(self, x):
+        return self.projection_layer(x)
