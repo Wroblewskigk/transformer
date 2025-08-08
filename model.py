@@ -190,6 +190,7 @@ class EncoderBlock(nn.Module):
             x, lambda x: self.self_attention(x, x, x, src_mask)
         )
         x = self.residual_connection[1](x, self.feedforward)
+        return x
 
 
 class Encoder(nn.Module):
