@@ -51,3 +51,17 @@ class PositionalEncoding(nn.Module):
     def forward(self, x: torch.Tensor):
         x = x + (self.positional_encoding[:, : x.shape[1], :]).requires_grad_(False)
         return self.dropout(x)
+
+
+class LayerNormalization(nn.Module):
+    def __init__(self, dmodel: int, epsilon: float = 1e-6) -> None:
+        super().__init__()
+        self.dmodel = dmodel
+        self.epsilon = epsilon
+        self.alpha = nn.Parameter(torch.ones(1, dmodel))  # Multiplicative
+        self.bias = nn.Parameter(torch.zeros(1, dmodel))  # Additive
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.alpha * (x - mean) / (std + self.epsilon) + self.bias
