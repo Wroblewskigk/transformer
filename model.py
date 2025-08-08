@@ -111,7 +111,6 @@ class MultiHeadAttention(nn.Module):
         query = self.wq(q)
         key = self.wk(k)
         value = self.wv(v)
-
         """
         Q, K, V transpose shape goes like this: 
         
@@ -125,31 +124,26 @@ class MultiHeadAttention(nn.Module):
             self.num_heads,
             self.dk,
         ).transpose(1, 2)
-
         key = key.view(
             key.shape[0],
             key.shape[1],
             self.num_heads,
             self.dk,
         ).transpose(1, 2)
-
         value = value.view(
             value.shape[0],
             value.shape[1],
             self.num_heads,
             self.dk,
         ).transpose(1, 2)
-
         x, self.attention_scores = MultiHeadAttention.attention(
             query, key, value, mask, self.dropout
         )
-
         x = (
             x.transpose(1, 2)
             .contiguous()
             .view(x.shape[0], -1, self.num_heads * self.dk)
         )
-
         return self.wo(x)
 
 
@@ -175,7 +169,6 @@ class EncoderBlock(nn.Module):
         dmodel,
     ) -> None:
         super().__init__()
-        self.dmodel = dmodel
         self.self_attention = self_attention
         self.feedforward = feedforward
         self.residual_connection = nn.ModuleList(
@@ -204,3 +197,33 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
+
+
+class DecoderBlock(nn.Module):
+    def __init__(
+        self,
+        self_attention: MultiHeadAttention,
+        cross_attention: MultiHeadAttention,
+        feedforward: FeedForward,
+        dropout: float,
+        dmodel,
+    ) -> None:
+        super().__init__()
+        self.self_attention = self_attention
+        self.cross_attention = cross_attention
+        self.feedforward = feedforward
+        self.residual_connection = nn.ModuleList(
+            [ResidualConnection(dmodel, dropout) for _ in range(3)]
+        )
+
+    # noinspection PyShadowingNames
+    def forward(self, x, encoder_output, src_mask, target_mask):
+        x = self.residual_connection[0](
+            x, lambda x: self.self_attention(x, x, x, target_mask)
+        )
+        x = self.residual_connection[1](
+            x,
+            lambda x: self.cross_attention(x, encoder_output, encoder_output, src_mask),
+        )
+        x = self.residual_connection[2](x, self.feedforward)
+        return x
