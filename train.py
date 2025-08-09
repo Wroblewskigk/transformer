@@ -159,9 +159,15 @@ def get_dataset(config):
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config["lang_src"])
     tokenizer_tgt = get_or_build_tokenizer(config, ds_raw, config["lang_tgt"])
 
-    train_ds_size = int(0.9 * len(ds_raw))
-    val_ds_size = len(ds_raw) - train_ds_size
-    train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+    # 20% subset of the full dataset
+    subset_size = int(0.2 * len(ds_raw))
+    subset_ds_raw, _ = random_split(ds_raw, [subset_size, len(ds_raw) - subset_size])
+    # 75% of subset (20%) for training
+    train_ds_size = int(0.75 * subset_size)
+    # 25% of subset (20%) for validation
+    val_ds_size = subset_size - train_ds_size
+
+    train_ds_raw, val_ds_raw = random_split(subset_ds_raw, [train_ds_size, val_ds_size])
 
     train_ds = BilingualDataset(
         train_ds_raw,
