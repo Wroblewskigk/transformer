@@ -147,28 +147,45 @@ def get_or_build_tokenizer(config, ds, lang):
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
     return tokenizer
 
-
-# noinspection PyShadowingNames
 def get_dataset(config):
+    # 1. Load raw dataset from HuggingFace
     ds_raw = load_dataset(
         f"{config['datasource']}",
         f"{config['lang_src']}-{config['lang_tgt']}",
         split="train",
     )
 
+    # 2. Build or load tokenizers
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config["lang_src"])
     tokenizer_tgt = get_or_build_tokenizer(config, ds_raw, config["lang_tgt"])
 
-    # 20% subset of the full dataset
-    subset_size = int(0.1 * len(ds_raw))
-    subset_ds_raw, _ = random_split(ds_raw, [subset_size, len(ds_raw) - subset_size])
-    # 90% of subset (20%) for training
-    train_ds_size = int(0.90 * subset_size)
-    # 10% of subset (20%) for validation
-    val_ds_size = subset_size - train_ds_size
+    # 3. Filter out sentences that are too long (after tokenization)
+    seq_len = config["seq_len"]
+    filtered_items = []
+    for item in ds_raw:
+        src_ids = tokenizer_src.encode(item["translation"][config["lang_src"]]).ids
+        tgt_ids = tokenizer_tgt.encode(item["translation"][config["lang_tgt"]]).ids
+        # Leave space for special tokens: [SOS], [EOS] in src; [SOS] in tgt + room for [EOS]
+        if len(src_ids) <= seq_len - 2 and len(tgt_ids) <= seq_len - 1:
+            filtered_items.append(item)
 
+    print(
+        f"Filtered dataset size: {len(filtered_items)} "
+        f"(removed {len(ds_raw) - len(filtered_items)} due to length)"
+    )
+
+    # 4. For training speed, take a 10% subset of the filtered data
+    subset_size = int(0.05 * len(filtered_items))
+    subset_ds_raw, _ = random_split(
+        filtered_items, [subset_size, len(filtered_items) - subset_size]
+    )
+
+    # 5. Split subset into train and validation
+    train_ds_size = int(0.90 * subset_size)
+    val_ds_size = subset_size - train_ds_size
     train_ds_raw, val_ds_raw = random_split(subset_ds_raw, [train_ds_size, val_ds_size])
 
+    # 6. Create PyTorch Dataset objects
     train_ds = BilingualDataset(
         train_ds_raw,
         tokenizer_src,
@@ -186,18 +203,19 @@ def get_dataset(config):
         config["seq_len"],
     )
 
-    max_len_src = 0
-    max_len_tgt = 0
+    # 7. Debug info: max lengths after filtering
+    max_len_src = max(
+        len(tokenizer_src.encode(item["translation"][config["lang_src"]]).ids)
+        for item in filtered_items
+    )
+    max_len_tgt = max(
+        len(tokenizer_tgt.encode(item["translation"][config["lang_tgt"]]).ids)
+        for item in filtered_items
+    )
+    print(f"Max length of source sentence (after filtering): {max_len_src}")
+    print(f"Max length of target sentence (after filtering): {max_len_tgt}")
 
-    for item in ds_raw:
-        src_ids = tokenizer_src.encode(item["translation"][config["lang_src"]]).ids
-        tgt_ids = tokenizer_tgt.encode(item["translation"][config["lang_tgt"]]).ids
-        max_len_src = max(max_len_src, len(src_ids))
-        max_len_tgt = max(max_len_tgt, len(tgt_ids))
-
-    print(f"Max length of source sentence: {max_len_src}")
-    print(f"Max length of target sentence: {max_len_tgt}")
-
+    # 8. Create DataLoaders
     train_dataloader = DataLoader(
         train_ds, batch_size=config["batch_size"], shuffle=True
     )
