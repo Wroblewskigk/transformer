@@ -175,7 +175,7 @@ def get_dataset(config):
     )
 
     # 4. For training speed, take a 10% subset of the filtered data
-    subset_size = int(0.05 * len(filtered_items))
+    subset_size = int(1.0 * len(filtered_items))
     subset_ds_raw, _ = random_split(
         filtered_items, [subset_size, len(filtered_items) - subset_size]
     )

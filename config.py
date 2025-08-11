@@ -4,8 +4,8 @@ from pathlib import Path
 # noinspection SpellCheckingInspection
 def get_config():
     return {
-        "batch_size": 32,
-        "num_epochs": 1,
+        "batch_size": 16,
+        "num_epochs": 2,
         "lr": 1e-4,
         "seq_len": 350,
         "d_model": 256,
