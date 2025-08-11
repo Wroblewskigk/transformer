@@ -181,7 +181,7 @@ def get_dataset(config):
     )
 
     # 5. Split subset into train and validation
-    train_ds_size = int(0.90 * subset_size)
+    train_ds_size = int(0.95 * subset_size)
     val_ds_size = subset_size - train_ds_size
     train_ds_raw, val_ds_raw = random_split(subset_ds_raw, [train_ds_size, val_ds_size])
 

@@ -5,10 +5,10 @@ from pathlib import Path
 def get_config():
     return {
         "batch_size": 16,
-        "num_epochs": 2,
+        "num_epochs": 1,
         "lr": 1e-4,
-        "seq_len": 350,
-        "d_model": 256,
+        "seq_len": 25,
+        "d_model": 512,
         "datasource": "Helsinki-NLP/opus-100",
         "lang_src": "en",
         "lang_tgt": "pl",
