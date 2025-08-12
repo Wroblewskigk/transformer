@@ -19,9 +19,9 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from config import get_config, get_weights_file_path, latest_weights_file_path
+from train_config import get_config, get_weights_file_path, latest_weights_file_path
 from dataset import BilingualDataset, causal_mask
-from model import build_transformer
+from transformer.Transformer import build_transformer
 
 
 def greedy_decode(model, source, source_mask, tokenizer_tgt, max_len, device):

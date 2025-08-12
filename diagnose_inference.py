@@ -2,8 +2,8 @@ import torch
 from pathlib import Path
 from tokenizers import Tokenizer
 
-from config import get_config, latest_weights_file_path
-from model import build_transformer
+from train_config import get_config, latest_weights_file_path
+from transformer.Transformer import build_transformer
 from dataset import causal_mask
 
 def load_tokenizer(config, lang):

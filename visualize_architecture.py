@@ -1,6 +1,6 @@
 import torch
-from model import build_transformer
-from config import get_config
+from transformer.Transformer import build_transformer
+from train_config import get_config
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -10,7 +10,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Build the model with config vocab sizes and sequence length
-    # Assuming you have tokenizers or you know vocab sizes, for example 30000 here
+    # Assuming you have tokenizers, or you know vocab sizes, for example 30000 here
     src_vocab_size = 30000
     tgt_vocab_size = 30000
     model = build_transformer(
